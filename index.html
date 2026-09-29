@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Sky Bird</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:#87ceeb}
+body{display:grid;place-items:center}
+#game{position:relative;width:min(100vw,900px);height:min(100vh,650px);overflow:hidden;background:#111;box-shadow:0 18px 60px #0004}
+canvas{display:block;width:100%;height:100%}
+.hud{position:absolute;inset:18px 18px auto;display:flex;justify-content:space-between;align-items:center;z-index:5;color:#fff;text-shadow:0 3px 8px #0008;font-weight:800}
+.score{font-size:32px}.best{font-size:14px;opacity:.9}
+.controls{display:flex;gap:8px}
+button{border:0;border-radius:14px;padding:10px 13px;background:#ffffffd9;color:#17212b;font-weight:800;cursor:pointer;box-shadow:0 5px 16px #0002}
+button:hover{transform:translateY(-1px)}
+.overlay{position:absolute;inset:0;display:grid;place-items:center;background:#07152255;z-index:10}
+.card{width:min(88%,410px);padding:32px 28px;text-align:center;border:1px solid #ffffff55;border-radius:26px;background:#ffffffed;box-shadow:0 20px 60px #0004}
+.card h1{font-size:44px;color:#17212b;margin-bottom:8px}
+.card p{color:#51606d;line-height:1.5;margin:8px 0 22px}
+.start{background:#17212b;color:#fff;padding:13px 24px;font-size:16px;border-radius:15px}
+.hidden{display:none}
+.tip{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:4;color:#fff;text-shadow:0 2px 5px #0008;font-size:13px;font-weight:700;white-space:nowrap}
+@media(max-width:600px){.score{font-size:26px}.card h1{font-size:36px}.tip{font-size:11px}.controls button{padding:9px}}
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="canvas"></canvas>
+  <div class="hud">
+    <div><div class="score" id="score">0</div><div class="best">BEST <span id="best">0</span></div></div>
+    <div class="controls">
+      <button id="music">🔊</button>
+      <button id="pause">Ⅱ</button>
+    </div>
+  </div>
+  <div class="tip">SPACE / CLICK / TAP TO FLY</div>
+  <div class="overlay" id="overlay">
+    <div class="card">
+      <h1 id="title">SKY BIRD</h1>
+      <p id="message">Fly through the pipes and beat your high score.</p>
+      <button class="start" id="start">START GAME</button>
+    </div>
+  </div>
+</div>
+<audio id="bgm" src="assets/lai.mp3" loop preload="auto"></audio>
+<script>
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score'),bestEl=document.getElementById('best');
+const overlay=document.getElementById('overlay'),title=document.getElementById('title'),message=document.getElementById('message');
+const startBtn=document.getElementById('start'),musicBtn=document.getElementById('music'),pauseBtn=document.getElementById('pause'),bgm=document.getElementById('bgm');
+
+let W=900,H=650,dpr=1,playing=false,paused=false,score=0,best=Number(localStorage.getItem('skyBirdBest')||0);
+let bird,pipes=[],last=0,spawn=0,ground=0,musicOn=true;
+const bgImage = new Image();
+bgImage.src = 'assets/background.jpg';
+bestEl.textContent=best;
+
+function resize(){
+  const r=canvas.getBoundingClientRect(); dpr=Math.min(devicePixelRatio||1,2);
+  W=r.width;H=r.height;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ground=H*.72;
+}
+addEventListener('resize',resize); resize();
+
+function reset(){
+  bird={x:W*.25,y:H*.42,vy:0,r:Math.max(15,Math.min(22,W*.025)),rot:0};
+  pipes=[];score=0;spawn=0;scoreEl.textContent=0;paused=false;
+  // Background image is static and supplied by the user.
+}
+function flap(){ if(!playing||paused)return; bird.vy=-H*.58; }
+function startGame(){
+  reset();playing=true;overlay.classList.add('hidden');title.textContent='SKY BIRD';message.textContent='Fly through the pipes and beat your high score.';
+  bgm.volume=.38;if(musicOn) bgm.play().catch(()=>{});
+}
+function gameOver(){
+  playing=false;
+  if(score>best){best=score;localStorage.setItem('skyBirdBest',best);bestEl.textContent=best}
+  title.textContent='GAME OVER';message.textContent=`Score: ${score}  •  Best: ${best}`;
+  startBtn.textContent='PLAY AGAIN';overlay.classList.remove('hidden');
+}
+function togglePause(){
+  if(!playing)return;
+  paused=!paused;pauseBtn.textContent=paused?'▶':'Ⅱ';
+}
+function toggleMusic(){
+  musicOn=!musicOn;musicBtn.textContent=musicOn?'🔊':'🔇';
+  if(musicOn && playing) bgm.play().catch(()=>{}); else bgm.pause();
+}
+startBtn.onclick=startGame; pauseBtn.onclick=togglePause; musicBtn.onclick=toggleMusic;
+addEventListener('keydown',e=>{
+  if(e.code==='Space'){e.preventDefault(); if(!playing)startGame(); else flap();}
+  if(e.code==='KeyP')togglePause();
+  if(e.code==='KeyM')toggleMusic();
+});
+canvas.addEventListener('pointerdown',()=>{if(!playing)startGame();else flap();});
+
+function pipe(){
+  const gap=Math.max(135,H*.235), min=70, max=ground-gap-70;
+  const top=min+Math.random()*(max-min);
+  pipes.push({x:W+45,w:Math.max(58,W*.075),top,gap,passed:false});
+}
+function circleRect(cx,cy,r,rx,ry,rw,rh){
+  const x=Math.max(rx,Math.min(cx,rx+rw)),y=Math.max(ry,Math.min(cy,ry+rh));
+  return (cx-x)**2+(cy-y)**2<r*r;
+}
+function update(dt){
+  if(!playing||paused)return;
+  const gravity=H*1.7;
+  bird.vy+=gravity*dt; bird.y+=bird.vy*dt; bird.rot=Math.max(-.55,Math.min(1.15,bird.vy/(H*.8)));
+  spawn+=dt;if(spawn>.001){spawn=0; if(!pipes.length||pipes[pipes.length-1].x<W*.57) pipe();}
+  const speed=W*.43;
+  for(const p of pipes){
+    p.x-=speed*dt;
+    if(!p.passed&&p.x+p.w<bird.x){p.passed=true;score++;scoreEl.textContent=score}
+    if(circleRect(bird.x,bird.y,bird.r,p.x,0,p.w,p.top)||circleRect(bird.x,bird.y,bird.r,p.x,p.top+p.gap,p.w,ground-(p.top+p.gap)))gameOver();
+  }
+  pipes=pipes.filter(p=>p.x+p.w>-30);
+
+  if(bird.y-bird.r<0||bird.y+bird.r>ground)gameOver();
+}
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill()}
+function drawCloud(x,y,s){
+  ctx.fillStyle='#fff9';ctx.beginPath();ctx.arc(x,y,s*.42,Math.PI,0);ctx.arc(x+s*.35,y-s*.18,s*.32,Math.PI,0);ctx.arc(x+s*.68,y,s*.35,Math.PI,0);ctx.lineTo(x+s,y+s*.3);ctx.lineTo(x,y+s*.3);ctx.fill();
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // User-selected background image
+  if(bgImage.complete && bgImage.naturalWidth){
+    const iw=bgImage.naturalWidth, ih=bgImage.naturalHeight;
+    const scale=Math.max(W/iw,H/ih);
+    const dw=iw*scale, dh=ih*scale;
+    ctx.drawImage(bgImage,(W-dw)/2,(H-dh)/2,dw,dh);
+  } else {
+    ctx.fillStyle='#111'; ctx.fillRect(0,0,W,H);
+  }
+  // pipes
+  for(const p of pipes){
+    const grad=ctx.createLinearGradient(p.x,0,p.x+p.w,0);grad.addColorStop(0,'#2b9b47');grad.addColorStop(.5,'#58c85b');grad.addColorStop(1,'#20833b');ctx.fillStyle=grad;
+    ctx.fillRect(p.x,0,p.w,p.top);ctx.fillRect(p.x,p.top+p.gap,p.w,ground-(p.top+p.gap));
+    ctx.fillStyle='#1e7134';ctx.fillRect(p.x-6,p.top-18,p.w+12,18);ctx.fillRect(p.x-6,p.top+p.gap,p.w+12,18);
+    ctx.fillStyle='#69d769';ctx.fillRect(p.x+8,0,7,p.top-18);ctx.fillRect(p.x+8,p.top+p.gap+18,7,ground-p.top-p.gap-18);
+  }
+  // ground
+  ctx.fillStyle='#e8c06a';ctx.fillRect(0,ground,W,H-ground);
+  ctx.fillStyle='#a6d95b';ctx.fillRect(0,ground,W,9);
+  ctx.fillStyle='#8fc74b';for(let x=0;x<W;x+=28)ctx.fillRect(x,ground+9,14,4);
+  // bird
+  if(bird){
+    ctx.save();ctx.translate(bird.x,bird.y);ctx.rotate(bird.rot);
+    ctx.shadowColor='#0004';ctx.shadowBlur=9;ctx.shadowOffsetY=5;
+    ctx.fillStyle='#ffd34d';ctx.beginPath();ctx.ellipse(0,0,bird.r*1.25,bird.r,0,0,Math.PI*2);ctx.fill();
+    ctx.shadowColor='transparent';
+    ctx.fillStyle='#f3a92d';ctx.beginPath();ctx.ellipse(-bird.r*.35,bird.r*.35,bird.r*.75,bird.r*.35,-.25,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(bird.r*.55,-bird.r*.4,bird.r*.34,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#111';ctx.beginPath();ctx.arc(bird.r*.65,-bird.r*.42,bird.r*.14,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#f58b31';ctx.beginPath();ctx.moveTo(bird.r*1.05,0);ctx.lineTo(bird.r*1.75,bird.r*.15);ctx.lineTo(bird.r*1.05,bird.r*.35);ctx.closePath();ctx.fill();
+    ctx.restore();
+  }
+}
+function loop(t){
+  const dt=Math.min((t-last)/1000,.035)||0;last=t;update(dt);draw();requestAnimationFrame(loop)
+}
+reset();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
